@@ -1,4 +1,6 @@
-## My Project
+[![security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit) [![cfn_nag:passing](https://img.shields.io/badge/cfn__nag-passing-brightgreen.svg)](https://github.com/stelligent/cfn_nag) ![GitHub](https://img.shields.io/github/license/aws-samples/amazon-workspaces-serverless-image-creation-automation)
+
+# Amazon WorkSpaces Serverless Image Automation for Windows
 
 TODO: Fill this README out!
 
