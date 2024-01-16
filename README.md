@@ -26,14 +26,14 @@ Default values were entered when the automation was deployed from CloudFormation
 
 
 - **ImageBuilderUser**: The user account which the image creation WorkSpace will be deployed to. This user must exist in your directory and should not have an existing WorkSpace deployed in that directory. This user account does not actually log into the WorkSpace during the process and just serves as the placeholder to allow a WorkSpace to be created. Default is set when you deploy the CloudFormation template.
-- **ImageBuilderDirectory**: The directory id that the WorkSpace used to create the image will be deployed to. Default is set when you deploy the CloudFormation template. (d-xxxxxxxxxx)
-- **ImageBuilderBundleId**: The bundle id to use as the base for building the image. Default is set when you deploy the CloudFormation template. (wsb-xxxxxxxxx)
+- **ImageBuilderDirectory**: The directory id that the WorkSpace used to create the image will be deployed to. Default is set when you deploy the CloudFormation template. Find the directory id in the [WorkSpaces console](https://console.aws.amazon.com/workspaces/v2/directories). (d-xxxxxxxxxx)
+- **ImageBuilderBundleId**: The bundle id to use as the base for building the image. Default is set when you deploy the CloudFormation template. Bundles ids are different for each Region, search the [WorkSpaces console](https://console.aws.amazon.com/workspaces/v2/bundles) for the id that matches your base image requirements (wsb-xxxxxxxxx)
 - **ImageBuilderRootVolumeSize**: The size of the root volume for the image builder WorkSpace. Default is 80GB.
 - **ImageBuilderUserVolumeSize**: The size of the user volume for the image builder WorkSpace. Default is 10GB.
 - **ImageBuilderComputeType**: The compute type of the image builder WorkSpace. Default is set when you deploy the CloudFormation template. (See [API reference guide](https://docs.aws.amazon.com/workspaces/latest/api/API_WorkspaceProperties.html#WorkSpaces-Type-WorkspaceProperties-ComputeTypeName) for a list of valid types.)
-- **ImageBuilderSecurityGroup**: The security group id attached to the image builder WorkSpace to allow the pipeline remote access.  Default SG is created by the CloudFormation template with proper permissions in place. (sg-xxxxxxxxxxxxxxxxx)
+- **ImageBuilderSecurityGroup**: The security group id attached to the image builder WorkSpace to allow the pipeline remote access.  Default SG is created by the CloudFormation template with proper permissions already in place. (sg-xxxxxxxxxxxxxxxxx)
 - **DeleteBuilder**: Option to delete or keep the image builder WorkSpace after the image capture is complete. Default is True. (True | False)
-- **ImageBuilderAPI**: The API id used to pass local account details to the image builder WorkSpace instance from Systems Manager parameter store. Default API is created by the CloudFormation template. (xxxxxxxxxx)
+- **ImageBuilderAPI**: The API id used to pass local account details to the image builder WorkSpace instance from Systems Manager parameter store. Default API is created by the CloudFormation template. Unless you manually build a new API, there should be no need to modify this parameter. (xxxxxxxxxx)
 - **DisableAPI**: Option to disable the API between automation runs. If you plan on running more than one deployment in parallel, do not set this to True or the second deployment may fail due to a disabled API. Default is True. (True | False)
 - **ImageNamePrefix**: The name of the image created from the automation; a timestamp is automatically appended to the end. Default is WKS_Automation.
 - **ImageDescription**: The description associated with the image metadata. Default is "Image created by WorkSpaces automation pipeline. Built on the starting bundle BUNDLE_ID running BUNDLE_OS".
@@ -67,19 +67,61 @@ The **InstallRoutine** JSON parameter defines the steps that run on your image b
 Below is a sample InstallRoutine value that downloads two files, one from S3 and one from the internet, and runs the commands to silently install both.
 ```
       "InstallRoutine" : [
-		["DOWNLOAD_S3","s3://wks-automation-installer-source-d3dcc6e0/putty/putty-64bit-0.80-installer.msi","c:\\wks_automation\\putty\\"],
-		["RUN_POWERSHELL","msiexec /i c:\\wks_automation\\putty\\putty-64bit-0.80-installer.msi /qn"],
+		["DOWNLOAD_S3","s3://wks-automation-installer-source-d3dcc6e0/putty/putty-installer.msi","c:\\wks_automation\\putty\\"],
+		["RUN_POWERSHELL","msiexec /i c:\\wks_automation\\putty\\putty-installer.msi /qn"],
       	        ["DOWNLOAD_HTTP","https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.6/npp.8.6.Installer.x64.exe"],
 		["RUN_COMMAND","c:\\wks_automation\\npp.8.6.Installer.x64.exe /S"]
 ```
 
 
 ### Windows Updates considerations
-By default, the image creation pipeline triggers Windows Updates utilizing the [PSWindowsUpdate](https://www.powershellgallery.com/packages/PSWindowsUpdate/) PowerShell module.
+The image creation pipeline triggers Windows Updates utilizing the [PSWindowsUpdate](https://www.powershellgallery.com/packages/PSWindowsUpdate/) PowerShell module. You have the option to skip the Windows Update portion of the workflow by including the **SkipWindowsUpdates** in the input JSON statement, and settings it to True. By default, your Windows WorkSpaces are configured to receive updates from directly from Microsoft via Windows Update over the internet. If you do not configure any Windows Updates settings with a GPO attached to your image creation OU, then your WorkSpaces will continue to receive approved updates from Microsoft.  Alternatively, you can configure your own update mechanisms for Windows. See the documentation for Windows Server Update Services (WSUS) or the systems management platform you have in place for details.
 
 
 ### Example JSON statement to start Step Function execution
-An example JSON statement used to start an execution of the automation Step Function can be found below. In this example, several of the above parameters are entered to control the behavior of the automation. TBD
+An example JSON statement used to start an execution of the automation Step Function can be found below. In this example, several of the above parameters are entered to control the behavior of the automation. Replace the XXXXXX with the S3 bucket you uploaded the PuTTY installer into. 
+
+```
+{
+    "DeleteBuilder": true,
+    "CreateBundle": true,
+    "ImageNamePrefix": "WKS_Blog_Test",
+    "ImageTags": [
+        {
+            "Key": "Automation",
+            "Value": "Test run"
+        },
+        {
+            "Key": "Blog",
+            "Value": "pipeline test"
+        }
+    ],
+    "BundleNamePrefix": "WKS_Blog_Test",
+    "BundleDescription": "This bundle uses an image containing Notepad++ and PuTTY.",
+    "InstallRoutine": [
+        [
+            "DOWNLOAD_S3",
+            "s3://wks-automation-installer-source-XXXXXX/putty/putty-installer.msi",
+            "c:\\wks_automation\\putty\\"
+        ],
+        [
+            "RUN_POWERSHELL",
+            "msiexec /i c:\\wks_automation\\putty\\putty-installer.msi /qn"
+        ],
+        [
+            "DOWNLOAD_HTTP",
+            "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.6/npp.8.6.Installer.x64.exe"
+        ],
+        [
+            "RUN_COMMAND",
+            "c:\\wks_automation\npp.8.6.Installer.x64.exe /S"
+        ]
+    ]
+}
+
+```
+
+These example parameters will run the AWS Step Functions state machine resulting in a customized WorkSpaces image and bundle named WKS_Blog_Test -<timestamp>. The image will have two tags applied to it, will have PuTTY and Notepad++ installed, and should have the latest Windows Updates applied. Once complete the state machine will delete the image builder WorkSpace used to create the image.
 
 ## Security
 
