@@ -64,13 +64,14 @@ The **InstallRoutine** JSON parameter defines the steps that run on your image b
 - **RUN_COMMAND**: This will run a Command Prompt command on the image builder WorkSpace.  Note that any use of backslashes (\) must be doubled up (\\) to keep the syntax valid. ["RUN_COMMAND","mkdir c:\\temp\\"]
 
 
-Below is a sample InstallRoutine value that downloads two files, one from S3 and one from the internet, and runs the commands to silently install both.
+Below is a sample InstallRoutine value that downloads two files, one from S3 and one from the internet, runs the commands to silently install both, and sets a regitry key.
 ```
       "InstallRoutine" : [
 		["DOWNLOAD_S3","s3://wks-automation-installer-source-d3dcc6e0/putty/putty-installer.msi","c:\\wks_automation\\putty\\"],
-		["RUN_POWERSHELL","msiexec /i c:\\wks_automation\\putty\\putty-installer.msi /qn"],
+		["RUN_COMMAND","msiexec /i c:\\wks_automation\\putty\\putty-installer.msi /qn"],
       	        ["DOWNLOAD_HTTP","https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.6/npp.8.6.Installer.x64.exe"],
-		["RUN_COMMAND","c:\\wks_automation\\npp.8.6.Installer.x64.exe /S"]
+		["RUN_COMMAND","c:\\wks_automation\\npp.8.6.Installer.x64.exe /S"],
+                ["RUN_POWERSHELL", "New-ItemProperty -Path HKLM:\\Software\\Amazon -Name Automated_Image -Value true -PropertyType String -Force"]
 ```
 
 
@@ -115,6 +116,10 @@ An example JSON statement used to start an execution of the automation Step Func
         [
             "RUN_COMMAND",
             "c:\\wks_automation\npp.8.6.Installer.x64.exe /S"
+        ],
+        [
+            "RUN_POWERSHELL",
+            "New-ItemProperty -Path HKLM:\\Software\\Amazon -Name Automated_Image -Value true -PropertyType String -Force"
         ]
     ]
 }
