@@ -105,7 +105,7 @@ An example JSON statement used to start an execution of the automation Step Func
             "c:\\wks_automation\\putty\\"
         ],
         [
-            "RUN_POWERSHELL",
+            "RUN_COMMAND",
             "msiexec /i c:\\wks_automation\\putty\\putty-installer.msi /qn"
         ],
         [
