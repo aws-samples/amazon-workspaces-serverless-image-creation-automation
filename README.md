@@ -128,6 +128,9 @@ An example JSON statement used to start an execution of the automation Step Func
 
 These example parameters will run the AWS Step Functions state machine resulting in a customized WorkSpaces image and bundle named WKS_Blog_Test -<timestamp>. The image will have two tags applied to it, will have PuTTY and Notepad++ installed, and should have the latest Windows Updates applied. Once complete the state machine will delete the image builder WorkSpace used to create the image.
 
+### Troubleshooting the configuration routine
+The configuration routine expects silent installs and properly formatted commands. That being said, there are times when you need to troubleshoot and investigate failures. The WKS_Automation_Windows_FN03_Configuration_Routine Lambda function writes each of the actions, and their results, to the CloudWatch log. Additionally, if  any of the commands do not return a status code of 0, then they are considered a failure and the command and return code are added to InstallRoutineErrors list. This value is passed along the Step Function steps and you can view it on the Output tabs of the Step Function. The final count of errors and their details are included in the final email that is sent at the end of the pipeline.
+
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
