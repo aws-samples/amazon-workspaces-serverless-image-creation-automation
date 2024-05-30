@@ -7,7 +7,7 @@ Customers often ask how they can streamline the management and maintenance of th
 This repository contains the supporting scripts for the AWS Desktop and Application Streaming blog article [Automatically create customized Amazon WorkSpaces Windows images](https://aws.amazon.com/blogs/desktop-and-application-streaming/automatically-create-customized-amazon-workspaces-windows-images/). Please refer to the blog article for guidance on deploying the solution. 
 
 <p align="center">
-   <img src="/WindowsSolutionDiagram.png" alt="Solution Diagram for Windows Image Pipeline" width=75% height=75%/>
+   <img src="/WindowsSolutionDiagram.png" alt="Solution Diagram for Windows Image Pipeline"/>
 </p>
 
 Once you have successfully deployed the solution and ran the sample automation pipeline, you should customize the applications installed into the image and the parameters of the workflow to meet your needs.
