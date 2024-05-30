@@ -1,0 +1,1408 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  This template creates an end-to-end Amazon WorkSpaces imaging process for Microsoft Windows based images, utilizing AWS Lambda and AWS Step Functions. (uksb-66mo1rvcv4)(tag: windows)
+Metadata: 
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - 
+        Label: 
+          default: "Automation Configuration"
+        Parameters: 
+          - CloudFormationSourceS3Bucket
+          - SNSEmailSubscriptionEndPoint
+          - LambdaVPCId
+          - LambdaVPCSubnet1
+          - LambdaVPCSubnet2
+      - 
+        Label: 
+          default: "Default WorkSpaces Configuration"
+        Parameters: 
+          - DefaultDirectoryId
+          - DefaultBundleId
+          - DefaultWorkSpaceUser
+          - DefaultComputeType
+          - WorkSpaceVPCId
+          
+Parameters:
+  CloudFormationSourceS3Bucket:
+    Type: String
+    Description: S3 Bucket name that contains the files required to import and build this WorkSpaces automation workflow. (Lambda functions and layer zip files)
+  SNSEmailSubscriptionEndPoint:
+    Type: String
+    Description: The email address that receives the automation notifications.
+    Default: user@domain.com
+  LambdaVPCId:
+    Type: 'AWS::EC2::VPC::Id'
+    Description: VPC Id where Lambda functions will reside.
+    ConstraintDescription: Must be the VPC Id of an existing Virtual Private Cloud.
+  LambdaVPCSubnet1:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: Subnet Id where Lambda functions will reside.
+  LambdaVPCSubnet2:
+    Type: 'AWS::EC2::Subnet::Id'
+    Description: Subnet Id where Lambda functions will reside.
+  DefaultDirectoryId:
+    Type: String
+    Description: WorkSpaces directory id where image creation takes place. See documentation for requirements.
+    Default: d-   
+  DefaultBundleId:
+    Type: String
+    Description: Default Windows bundle to use when creating the image builder WorkSpace instance. Ensure the bundle is from the proper AWS region.
+    Default: wsb-
+  DefaultComputeType:
+    Type: String
+    Description: Default WorkSpaces bundle type.
+    Default: POWER
+    AllowedValues:
+      - STANDARD
+      - PERFORMANCE
+      - POWER
+      - POWERPRO
+      - GRAPHICS
+      - GRAPHICSPRO
+      - GRAPHICS_G4DN
+      - GRAPHICSPRO_G4DN
+  DefaultWorkSpaceUser:
+    Type: String
+    Description: Default user to create image creation WorkSpace for. This should be a user in your directory without an existing WorkSpace in the directory.
+  WorkSpaceVPCId:
+    Type: 'AWS::EC2::VPC::Id'
+    Description: VPC Id where image builder WorkSpaces reside. This should be the VPC id that matches where your DefaultDirectoryId deploys WorkSpaces into.
+    ConstraintDescription: Must be the VPC Id of an existing Virtual Private Cloud.
+    
+Resources:    
+  SNSTopic:
+    Type: AWS::SNS::Topic    
+    Properties:
+      TopicName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_Notification"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"   
+  SNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: SNSTopicPolicy
+        Version: '2012-10-17'
+        Statement:
+          - Sid: "PublishEventsToSNSTopic"
+            Effect: Allow
+            Principal:
+              Service: 
+                - lambda.amazonaws.com
+                - events.amazonaws.com
+            Action:
+              - sns:Publish
+            Resource: !Ref SNSTopic
+      Topics:
+        - !Ref SNSTopic                  
+  SNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      Endpoint:
+        Ref: SNSEmailSubscriptionEndPoint
+      Protocol: email
+      TopicArn:
+        Ref: SNSTopic
+        
+        
+  LambdaFunctionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup                 
+    Properties:
+        GroupDescription: Allows automation Lambda functions to communicate with image builder WorkSpace instances and other AWS services.
+        GroupName: !Join
+          - "_"
+          - - "WKS_Automation_Windows_Lambdas"
+            - !Select
+              - 0
+              - !Split
+                - "-"
+                - !Select
+                  - 2
+                  - !Split
+                    - "/"
+                    - !Ref "AWS::StackId"        
+        VpcId:
+          Ref: LambdaVPCId
+  LambdaFunctionSecurityGroupEgressRule1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      IpProtocol: 'tcp'
+      FromPort: 5985
+      ToPort: 5985
+      DestinationSecurityGroupId:
+        Ref: WorkSpaceBuilderSecurityGroup
+      Description: "Allow remote WinRM from Lambda functions to image builder WorkSpaces"
+      GroupId:
+        Ref: LambdaFunctionSecurityGroup
+  LambdaFunctionSecurityGroupEgressRule2:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      IpProtocol: 'tcp'
+      FromPort: 5986
+      ToPort: 5986
+      DestinationSecurityGroupId:
+        Ref: WorkSpaceBuilderSecurityGroup
+      Description: "Allow remote WinRM from Lambda functions to image builders WorkSpaces"
+      GroupId:
+        Ref: LambdaFunctionSecurityGroup
+  LambdaFunctionSecurityGroupEgressRule3:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      IpProtocol: 'tcp'
+      FromPort: 443
+      ToPort: 443
+      CidrIp: 0.0.0.0/0
+      Description: "Allow HTTPS from Lambda functions"
+      GroupId:
+        Ref: LambdaFunctionSecurityGroup
+  LambdaFunctionSecurityGroupEgressRule4:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      IpProtocol: 'tcp'
+      FromPort: 53
+      ToPort: 53
+      CidrIp: 0.0.0.0/0
+      Description: "Allow DNS lookup from Lambda functions"
+      GroupId:
+        Ref: LambdaFunctionSecurityGroup
+  LambdaFunctionSecurityGroupEgressRule5:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      IpProtocol: 'udp'
+      FromPort: 53
+      ToPort: 53
+      CidrIp: 0.0.0.0/0
+      Description: "Allow DNS lookup from Lambda functions"
+      GroupId:
+        Ref: LambdaFunctionSecurityGroup           
+
+  WorkSpaceBuilderSecurityGroup:
+    Type: AWS::EC2::SecurityGroup                                  
+    Properties:
+        GroupDescription: Allows automation Lambda functions to communicate with image builder WorkSpace instances, and image builder WorkSpaces to talk to outside resources and AWS services.
+        GroupName: !Join
+          - "_"
+          - - "WKS_Automation_Windows_ImageBuilders"
+            - !Select
+              - 0
+              - !Split
+                - "-"
+                - !Select
+                  - 2
+                  - !Split
+                    - "/"
+                    - !Ref "AWS::StackId"           
+        VpcId:
+          Ref: WorkSpaceVPCId
+  WorkSpaceBuilderSecurityGroupEgressRule1:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      IpProtocol: '-1'
+      CidrIp: 0.0.0.0/0
+      Description: "Allow outbound internet traffic from image builder WorkSpace"
+      GroupId:
+        Ref: WorkSpaceBuilderSecurityGroup            
+  WorkSpaceBuilderSecurityGroupIngressRule1:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: 'tcp'
+      FromPort: 5985
+      ToPort: 5985
+      SourceSecurityGroupId:
+        Ref: LambdaFunctionSecurityGroup
+      Description: "Allow remote WinRM from Lambda functions"
+      GroupId:
+        Ref: WorkSpaceBuilderSecurityGroup
+  WorkSpaceBuilderSecurityGroupIngressRule2:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      IpProtocol: 'tcp'
+      FromPort: 5986
+      ToPort: 5986
+      SourceSecurityGroupId:
+        Ref: LambdaFunctionSecurityGroup
+      Description: "Allow remote WinRM from Lambda functions"
+      GroupId:
+        Ref: WorkSpaceBuilderSecurityGroup
+
+  LambdaFunctionIAMRole:
+    Type: 'AWS::IAM::Role'        
+    Properties: 
+      RoleName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_Lambda_Role"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+      Description: IAM role for WorkSpaces Automation Lambda Functions
+      AssumeRolePolicyDocument: # What service can assume this role
+        Version: '2012-10-17'
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - 'lambda.amazonaws.com'
+            Action: 
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'              
+  LambdaFunctionIAMPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'    
+    Properties:
+      Description: Permissions needed by Lambda functions to interact with image builder WorkSpace instances and AWS services.
+      ManagedPolicyName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_Lambda_Policy"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"        
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: Allow
+            Action:            
+              - ec2:ModifyNetworkInterfaceAttribute
+              - ec2:DeleteNetworkInterface
+              - ec2:CreateNetworkInterface
+              - ec2:DescribeNetworkInterfaces
+              - workspaces:CreateWorkspaces              
+              - workspaces:StartWorkspaces
+              - workspaces:RebootWorkspaces
+              - workspaces:DescribeWorkspaces
+              - workspaces:CreateWorkspaceImage
+              - workspaces:DescribeWorkspaceImages
+              - workspaces:StopWorkspaces
+              - workspaces:CreateTags
+            Resource: '*'
+          - Effect: Allow
+            Action:            
+              - ssm:GetParameter  
+              - ssm:PutParameter
+              - ssm:DeleteParameter
+              - ssm:AddTagsToResource          
+            Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/wks_automation/*' 
+          - Effect: Allow
+            Action:            
+              - apigateway:PATCH  
+              - apigateway:POST
+              - apigateway:GET
+            Resource: !Join
+              - ''
+              - 
+                - 'arn:aws:apigateway:*::/restapis/'
+                - !Ref RestApi
+                - '*'
+          - Effect: Allow
+            Action:            
+              - sns:Publish           
+            Resource:
+              - Ref: SNSTopic             
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource:
+              - !GetAtt 'InstallationSourceS3Bucket.Arn'                  
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+            Resource: !Join
+              - ''
+              - 
+                - !GetAtt 'InstallationSourceS3Bucket.Arn'
+                - '/*'            
+      Roles:
+        - !Ref LambdaFunctionIAMRole
+      
+  StepFunctionIAMRole:
+    Type: 'AWS::IAM::Role'   
+    Properties: 
+      RoleName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_StepFunction_Role"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+      Description: IAM role for WorkSpaces automation Step Function
+      AssumeRolePolicyDocument: # What service can assume this role
+        Version: '2012-10-17'
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - 'states.amazonaws.com'
+            Action: 
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaRole'       
+  StepFunctionIAMPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'    
+    Properties:
+      Description: Permissions needed by Step Function functions to interact with WorkSpaces image builder instances, the WorkSpaces service, and SNS.
+      ManagedPolicyName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_StepFunction_Policy"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId" 
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'lambda:InvokeFunction'
+            Resource:
+              - !GetAtt 'LambdaFunction01CreateBuilder.Arn'
+              - !GetAtt 'LambdaFunction02AttachSG.Arn'
+              - !GetAtt 'LambdaFunction03InstallRoutine.Arn'
+              - !GetAtt 'LambdaFunction04WindowsUpdates.Arn' 
+              - !GetAtt 'LambdaFunction05Cleanup.Arn' 
+              - !GetAtt 'LambdaFunction06Notification.Arn'               
+          - Effect: Allow
+            Action:
+              - workspaces:TerminateWorkspaces
+              - workspaces:CreateTags
+              - workspaces:DescribeWorkspaceImages
+              - workspaces:CreateWorkspaceBundle
+              - workspaces:StartWorkspaces
+              - workspaces:RebootWorkspaces
+              - workspaces:DescribeWorkspaces
+              - workspaces:CreateWorkspaceImage                           
+            Resource: '*'
+      Roles:
+        - !Ref StepFunctionIAMRole
+               
+  LambdaFunctionLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: !Join
+        - "_"
+        - - "WKS_Automation_pywinrm"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"      
+      Description: Contains pywinrm libraries. Dependencies for the WorkSpaces image creation automation Lambda functions.
+      Content:
+        S3Bucket:
+          Ref: CloudFormationSourceS3Bucket
+        S3Key: Lambda_Layer_winrm_libraries.zip
+      CompatibleRuntimes:
+        - python3.11
+        - python3.10
+        - python3.9
+        - python3.8
+        - python3.7
+        - python3.6
+
+  LambdaFunction00Api:
+    Type: AWS::Lambda::Function  
+    Properties:
+      FunctionName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_FN00_API"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+      Handler: FN00_API.lambda_handler
+      Code:
+        S3Bucket:
+          Ref: CloudFormationSourceS3Bucket
+        S3Key: FN00_API.zip        
+      Runtime: python3.11
+      Role: !GetAtt 'ApiLambdaFunctionIAMRole.Arn'
+      Timeout: 3
+
+  LambdaFunction01CreateBuilder:
+    Type: AWS::Lambda::Function  
+    Properties:
+      FunctionName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_FN01_Create_Builder"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+      Code:
+        S3Bucket:
+          Ref: CloudFormationSourceS3Bucket
+        S3Key: FN01_Create_Builder.zip       
+      Environment:
+        Variables:
+          Default_APIId: !Ref RestApi
+          Default_BundleId: !Ref DefaultBundleId
+          Default_BundlePrefix: WKS_Automation
+          Default_ComputeType: !Ref DefaultComputeType
+          Default_DirectoryId: !Ref DefaultDirectoryId
+          Default_ImagePrefix: WKS_Automation
+          Default_NotificationARN: !Ref SNSTopic
+          Default_Protocol: WSP
+          Default_RootVolumeSize: 80
+          Default_S3Bucket: !Ref InstallationSourceS3Bucket
+          Default_SecurityGroup: !Ref WorkSpaceBuilderSecurityGroup
+          Default_UserVolumeSize: 10
+          Default_WorkSpaceUser: !Ref DefaultWorkSpaceUser
+      Runtime: python3.11
+      Role: !GetAtt 'LambdaFunctionIAMRole.Arn'
+      Handler: FN01_Create_Builder.lambda_handler
+      Timeout: 30  
+  LambdaFunction02AttachSG:
+    Type: AWS::Lambda::Function  
+    Properties:
+      FunctionName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_FN02_Attach_SG"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+      Code:
+        S3Bucket:
+          Ref: CloudFormationSourceS3Bucket
+        S3Key: FN02_Attach_SG.zip        
+      Runtime: python3.11
+      Role: !GetAtt 'LambdaFunctionIAMRole.Arn'
+      Handler: FN02_Attach_SG.lambda_handler
+      Timeout: 30
+  LambdaFunction03InstallRoutine:
+    Type: AWS::Lambda::Function    
+    Properties:
+      FunctionName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_FN03_Configuration_Routine"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"       
+      Code:
+        S3Bucket:
+          Ref: CloudFormationSourceS3Bucket
+        S3Key: FN03_Configuration_Routine.zip      
+      Runtime: python3.11
+      Layers:
+        - Ref: LambdaFunctionLayer      
+      Role: !GetAtt 'LambdaFunctionIAMRole.Arn'
+      MemorySize: 256
+      Timeout: 900
+      Handler: FN03_Configuration_Routine.lambda_handler      
+      VpcConfig:
+        SecurityGroupIds:
+          - Ref: LambdaFunctionSecurityGroup
+        SubnetIds:
+          - Ref: LambdaVPCSubnet1
+          - Ref: LambdaVPCSubnet2
+    DependsOn:
+      - LambdaFunctionIAMRole
+      - LambdaFunctionIAMPolicy            
+  LambdaFunction04WindowsUpdates:
+    Type: AWS::Lambda::Function    
+    Properties:
+      FunctionName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_FN04_Windows_Updates"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"       
+      Code:
+        S3Bucket:
+          Ref: CloudFormationSourceS3Bucket
+        S3Key: FN04_Windows_Updates.zip      
+      Runtime: python3.11
+      Layers:
+        - Ref: LambdaFunctionLayer      
+      Role: !GetAtt 'LambdaFunctionIAMRole.Arn'
+      MemorySize: 256
+      Timeout: 180
+      Handler: FN04_Windows_Updates.lambda_handler       
+      VpcConfig:
+        SecurityGroupIds:
+          - Ref: LambdaFunctionSecurityGroup
+        SubnetIds:
+          - Ref: LambdaVPCSubnet1
+          - Ref: LambdaVPCSubnet2
+    DependsOn:
+      - LambdaFunctionIAMRole
+      - LambdaFunctionIAMPolicy            
+  LambdaFunction05Cleanup:
+    Type: AWS::Lambda::Function    
+    Properties:
+      FunctionName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_FN05_Cleanup"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"       
+      Code:
+        S3Bucket:
+          Ref: CloudFormationSourceS3Bucket
+        S3Key: FN05_Cleanup.zip      
+      Runtime: python3.11
+      Layers:
+        - Ref: LambdaFunctionLayer      
+      Role: !GetAtt 'LambdaFunctionIAMRole.Arn'
+      MemorySize: 256
+      Timeout: 180
+      Handler: FN05_Cleanup.lambda_handler         
+      VpcConfig:
+        SecurityGroupIds:
+          - Ref: LambdaFunctionSecurityGroup
+        SubnetIds:
+          - Ref: LambdaVPCSubnet1
+          - Ref: LambdaVPCSubnet2
+    DependsOn:
+      - LambdaFunctionIAMRole
+      - LambdaFunctionIAMPolicy  
+  LambdaFunction06Notification:
+    Type: AWS::Lambda::Function  
+    Properties:
+      FunctionName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_FN06_Notification"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+      Code:
+        S3Bucket:
+          Ref: CloudFormationSourceS3Bucket
+        S3Key: FN06_Notification.zip       
+      Runtime: python3.11
+      Role: !GetAtt 'LambdaFunctionIAMRole.Arn'
+      Timeout: 30
+      Handler: FN06_Notification.lambda_handler      
+
+  ApiLambdaFunctionIAMRole:
+    Type: 'AWS::IAM::Role'        
+    Properties: 
+      RoleName: !Join
+        - "_"
+        - - "WKS_Automation_API_Lambda_Role"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+      Description: IAM role for WorkSpaces Automation API Lambda Function
+      AssumeRolePolicyDocument: # What service can assume this role
+        Version: '2012-10-17'
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - 'lambda.amazonaws.com'
+            Action: 
+              - 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole'
+  ApiLambdaFunctionIAMPolicy:
+    Type: 'AWS::IAM::ManagedPolicy'    
+    Properties:
+      Description: Permissions needed by API Lambda functions to interact with Parameter Store.
+      ManagedPolicyName: !Join
+        - "_"
+        - - "WKS_Automation_API_Lambda_Policy"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"        
+      PolicyDocument: 
+        Version: '2012-10-17'
+        Statement: 
+          - Effect: Allow
+            Action:            
+              - ssm:GetParameter            
+            Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/wks_automation/*'        
+      Roles:
+        - !Ref ApiLambdaFunctionIAMRole
+  ApiLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LambdaFunction00Api
+      Action: "lambda:InvokeFunction"
+      Principal: apigateway.amazonaws.com
+
+  RestApi:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Name: !Join
+        - "_"
+        - - "WKS_Automation_API"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"      
+
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+      Description: API Gateway to allow WorkSpaces instances to retrieve local admin credentials from Parameter Store     
+  ApiResource:
+    Type: 'AWS::ApiGateway::Resource'
+    Properties:
+      PathPart: get-creds
+      RestApiId: !Ref RestApi
+      ParentId: !GetAtt 
+        - RestApi
+        - RootResourceId
+  ApiMethod:
+    Type: AWS::ApiGateway::Method
+    Metadata:
+      cfn_nag:
+        rules_to_suppress:
+          - id: W59
+            reason: "The API is only available when an active automation is running. The authentication is NONE to allow a WorkSpace to utilize API without intervention."     
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: GET
+      Integration:
+        IntegrationHttpMethod: POST
+        PassthroughBehavior: WHEN_NO_MATCH
+        TimeoutInMillis: 29000
+        Type: AWS_PROXY
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction00Api.Arn}/invocations'
+      OperationName: 'GetCreds'
+      ResourceId: !Ref ApiResource
+      RestApiId: !Ref RestApi
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels: { "application/json": "Empty" }      
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties: 
+      RestApiId: !Ref RestApi
+    DependsOn: ApiMethod 
+  ApiStage:
+    Type: AWS::ApiGateway::Stage
+    DependsOn:
+      - ApiLoggingRole
+    Properties: 
+      DeploymentId: !Ref ApiDeployment
+      RestApiId: !Ref RestApi
+      StageName: prod
+      TracingEnabled: false
+      MethodSettings:
+          - HttpMethod: "*"
+            ResourcePath: "/*"      
+            ThrottlingBurstLimit: 2
+            ThrottlingRateLimit: 2
+      AccessLogSetting:
+          DestinationArn: !GetAtt ApiLogGroup.Arn
+          Format: '{ "requestId": "$context.requestId", "path": "$context.path", "requestTime": "$context.requestTime", "httpMethod": "$context.httpMethod","statusCode": "$context.status", "errorMessage": "$context.error.message" }'      
+  ApiUsagePlan:
+    Type: AWS::ApiGateway::UsagePlan
+    Properties:
+      ApiStages: 
+        - ApiId: !Ref RestApi
+          Stage: !Ref ApiStage       
+      Description: Restrict usage for Amazon WorkSpaces image creation automation API
+      Throttle:
+        BurstLimit: 2
+        RateLimit: 2
+      UsagePlanName: !Join
+        - "_"
+        - - "WKS_Automation_API_Usage_Plan"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"      
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 30
+  ApiLoggingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: Allows the API to log errors to CloudWatch Logs
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - apigateway.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+  ApiGatewayAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !GetAtt ApiLoggingRole.Arn
+
+  StepFunction:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Join
+        - "_"
+        - - "WKS_Automation_Windows_Image_Build"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"              
+      DefinitionString: 
+        Fn::Sub:
+          |-
+            {
+              "Comment": "State machine to automate the creation of Amazon WorkSpaces images and bundles.",
+              "StartAt": "Create Builder WorkSpace",
+              "States": {
+                "Create Builder WorkSpace": {
+                  "Type": "Task",
+                  "Resource": "${LambdaFunction01CreateBuilder.Arn}",
+                  "ResultPath": "$",
+                  "Next": "Check Builder Status (Create)",
+                  "Comment": "Calls function to create new WorkSpace using input parameters (or starts existing match) and enables API for local credential retreival."
+                },
+                "Check Builder Status (Create)": {
+                  "Type": "Task",
+                  "Parameters": {
+                    "WorkspaceIds.$": "States.Array($.AutomationParameters.ImageBuilderWorkSpaceId)"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:describeWorkspaces",
+                  "ResultPath": "$.ImageBuilderStatus",
+                  "Next": "Is Builder Available? (Create)"
+                },
+                "Is Builder Available? (Create)": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.ImageBuilderStatus.Workspaces[0].State",
+                      "StringEquals": "AVAILABLE",
+                      "Next": "Attach Security Group and Generate Creds",
+                      "Comment": "AVAILABLE"
+                    },
+                    {
+                      "Variable": "$.ImageBuilderStatus.Workspaces[0].State",
+                      "StringEquals": "STOPPED",
+                      "Next": "Start Builder WorkSpace (Create)",
+                      "Comment": "STOPPED"
+                    }
+                  ],
+                  "Default": "If Not Available, Wait 3 Min (Create)"
+                },
+                "Attach Security Group and Generate Creds": {
+                  "Type": "Task",
+                  "Resource": "${LambdaFunction02AttachSG.Arn}",
+                  "ResultPath": null,
+                  "Next": "Reboot Builder WorkSpace",
+                  "Comment": "Calls function to attach required security group for WinRM to WorkSpace ENI. Also generates temporary admin password and stores it in parameter store for retreival via API."
+                },
+                "Reboot Builder WorkSpace": {
+                  "Type": "Task",
+                  "Next": "Wait 1 min (Reboot)",
+                  "Parameters": {
+                    "RebootWorkspaceRequests.$": "States.Array($.AutomationParameters.ImageBuilderIdArray)"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:rebootWorkspaces",
+                  "ResultPath": null
+                },
+                "Wait 1 min (Reboot)": {
+                  "Type": "Wait",
+                  "Seconds": 60,
+                  "Next": "Check Builder Status (Reboot)",
+                  "Comment": "Pause to let WorkSpace Reboot API take effect"
+                },
+                "Check Builder Status (Reboot)": {
+                  "Type": "Task",
+                  "Parameters": {
+                    "WorkspaceIds.$": "States.Array($.AutomationParameters.ImageBuilderWorkSpaceId)"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:describeWorkspaces",
+                  "ResultPath": "$.ImageBuilderStatus",
+                  "Next": "Is Builder Available? (Reboot)"
+                },
+                "Is Builder Available? (Reboot)": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.ImageBuilderStatus.Workspaces[0].State",
+                      "StringEquals": "AVAILABLE",
+                      "Next": "Wait 5 min (Reboot)",
+                      "Comment": "AVAILABLE"
+                    },
+                    {
+                      "Not": {
+                        "Variable": "$.ImageBuilderStatus.Workspaces[0].State",
+                        "StringEquals": "AVAILABLE"
+                      },
+                      "Next": "If Not Available, Wait 1 Min (Reboot)",
+                      "Comment": "NOT AVAILABLE"
+                    }
+                  ]
+                },
+                "Wait 5 min (Reboot)": {
+                  "Type": "Wait",
+                  "Seconds": 300,
+                  "Next": "Run Deployment Routine",
+                  "Comment": "Wait for startup scripts to complete."
+                },
+                "If Not Available, Wait 1 Min (Reboot)": {
+                  "Type": "Wait",
+                  "Seconds": 60,
+                  "Next": "Check Builder Status (Reboot)"
+                },
+                "Run Deployment Routine": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "Payload.$": "$",
+                    "FunctionName": "${LambdaFunction03InstallRoutine.Arn}"
+                  },
+                  "Retry": [
+                    {
+                      "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                      ],
+                      "IntervalSeconds": 1,
+                      "MaxAttempts": 3,
+                      "BackoffRate": 2
+                    }
+                  ],
+                  "Next": "Deployment Steps Remaining?",
+                  "ResultPath": "$.InstallRoutineRemaining",
+                  "ResultSelector": {
+                    "InstallRoutine.$": "$.Payload.InstallRoutine",
+                    "InstallRoutineErrors.$": "$.Payload.InstallRoutineErrors"
+                  },
+                  "Comment": "Executes deployment routine steps. Function will stop running new steps, and loop again if more than 10 minutes have elapsed. This is to  overcome max duration limits of AWS Lambda functions. "
+                },
+                "Deployment Steps Remaining?": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "And": [
+                        {
+                          "Variable": "$.InstallRoutineRemaining",
+                          "IsPresent": true
+                        },
+                        {
+                          "Not": {
+                            "Variable": "$.InstallRoutineRemaining.InstallRoutine",
+                            "BooleanEquals": false
+                          }
+                        }
+                      ],
+                      "Comment": "STEPS REMAIN",
+                      "Next": "Run Deployment Routine"
+                    }
+                  ],
+                  "Default": "Skip Windows Updates?"
+                },
+                "Skip Windows Updates?": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.AutomationParameters.SkipWindowsUpdates",
+                      "BooleanEquals": false,
+                      "Next": "Run Windows Updates",
+                      "Comment": "FALSE"
+                    },
+                    {
+                      "Variable": "$.AutomationParameters.SkipWindowsUpdates",
+                      "BooleanEquals": true,
+                      "Next": "Reboot Builder WorkSpace (Clear Pending)",
+                      "Comment": "TRUE"
+                    }
+                  ]
+                },
+                "Run Windows Updates": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "Payload.$": "$",
+                    "FunctionName": "${LambdaFunction04WindowsUpdates.Arn}"
+                  },
+                  "Retry": [
+                    {
+                      "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                      ],
+                      "IntervalSeconds": 1,
+                      "MaxAttempts": 3,
+                      "BackoffRate": 2
+                    }
+                  ],
+                  "ResultPath": null,
+                  "Next": "Wait 45 min (Windows Updates)",
+                  "Comment": "Calls function to initiate Windows Updates on the builder instance. "
+                },
+                "Wait 45 min (Windows Updates)": {
+                  "Type": "Wait",
+                  "Seconds": 2700,
+                  "Next": "Reboot Builder WorkSpace (Clear Pending)",
+                  "Comment": "Wait 45 minutes before moving on to next step to allow Windows Updates to complete."
+                },
+                "Reboot Builder WorkSpace (Clear Pending)": {
+                  "Type": "Task",
+                  "Next": "Wait 1 min (Clear Pending)",
+                  "Parameters": {
+                    "RebootWorkspaceRequests.$": "States.Array($.AutomationParameters.ImageBuilderIdArray)"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:rebootWorkspaces",
+                  "ResultPath": null,
+                  "Comment": "Reboot WorkSpace to clear any pending reboots from software updates or other installations."
+                },
+                "Wait 1 min (Clear Pending)": {
+                  "Type": "Wait",
+                  "Seconds": 60,
+                  "Next": "Check Builder Status (Clear Pending)",
+                  "Comment": "Pause to let WorkSpace Reboot API take effect"
+                },
+                "Check Builder Status (Clear Pending)": {
+                  "Type": "Task",
+                  "Parameters": {
+                    "WorkspaceIds.$": "States.Array($.AutomationParameters.ImageBuilderWorkSpaceId)"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:describeWorkspaces",
+                  "ResultPath": "$.ImageBuilderStatus",
+                  "Next": "Is Builder Available? (Clear Pending)"
+                },
+                "Is Builder Available? (Clear Pending)": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.ImageBuilderStatus.Workspaces[0].State",
+                      "StringEquals": "AVAILABLE",
+                      "Next": "Cleanup Temp Creds & API",
+                      "Comment": "AVAILABLE"
+                    },
+                    {
+                      "Not": {
+                        "Variable": "$.ImageBuilderStatus.Workspaces[0].State",
+                        "StringEquals": "AVAILABLE"
+                      },
+                      "Next": "If Not Available, Wait 1 Min (Clear Pending)",
+                      "Comment": "NOT AVAILABLE"
+                    }
+                  ]
+                },
+                "Cleanup Temp Creds & API": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "Payload.$": "$",
+                    "FunctionName": "${LambdaFunction05Cleanup.Arn}"
+                  },
+                  "Retry": [
+                    {
+                      "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                      ],
+                      "IntervalSeconds": 1,
+                      "MaxAttempts": 3,
+                      "BackoffRate": 2
+                    }
+                  ],
+                  "Next": "Tag Image?",
+                  "Comment": "Calls function to remove WorkSpace local credentials from parameter store. Disables API if configured via starting input parameter.",
+                  "ResultPath": "$.ImageDetail",
+                  "ResultSelector": {
+                    "ImageDescription.$": "$.Payload.ImageDescription"
+                  }
+                },
+                "If Not Available, Wait 1 Min (Clear Pending)": {
+                  "Type": "Wait",
+                  "Seconds": 60,
+                  "Next": "Check Builder Status (Clear Pending)"
+                },
+                "Tag Image?": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.AutomationParameters.ImageTags",
+                      "BooleanEquals": false,
+                      "Comment": "FALSE",
+                      "Next": "Create Workspace Image (No Tags)"
+                    }
+                  ],
+                  "Default": "Create Workspace Image (Tagged)"
+                },
+                "Create Workspace Image (Tagged)": {
+                  "Type": "Task",
+                  "Parameters": {
+                    "Description.$": "$.ImageDetail.ImageDescription",
+                    "Name.$": "$.AutomationParameters.ImageName",
+                    "WorkspaceId.$": "$.AutomationParameters.ImageBuilderWorkSpaceId",
+                    "Tags.$": "$.AutomationParameters.ImageTags"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:createWorkspaceImage",
+                  "Next": "Check Image Status (Post-Create)",
+                  "ResultPath": "$.ImageStatus"
+                },
+                "Create Workspace Image (No Tags)": {
+                  "Type": "Task",
+                  "Parameters": {
+                    "Description.$": "$.ImageDetail.ImageDescription",
+                    "Name.$": "$.AutomationParameters.ImageName",
+                    "WorkspaceId.$": "$.AutomationParameters.ImageBuilderWorkSpaceId"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:createWorkspaceImage",
+                  "Next": "Check Image Status (Post-Create)",
+                  "ResultPath": "$.ImageStatus"
+                },
+                "Check Image Status (Post-Create)": {
+                  "Type": "Task",
+                  "Next": "Is Image Available?",
+                  "Parameters": {
+                    "ImageIds.$": "States.Array($.ImageStatus.ImageId)"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:describeWorkspaceImages",
+                  "ResultPath": "$.ImageStatus"
+                },
+                "Is Image Available?": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.ImageStatus.Images[0].State",
+                      "StringEquals": "AVAILABLE",
+                      "Next": "Delete Builder?",
+                      "Comment": "AVAILABLE"
+                    },
+                    {
+                      "Variable": "$.ImageStatus.Images[0].State",
+                      "StringEquals": "ERROR",
+                      "Comment": "ERROR",
+                      "Next": "Send Final Notification"
+                    }
+                  ],
+                  "Default": "If Image Not Available, Wait 10 Min",
+                  "Comment": "If the image is AVAILABLE, check if WorkSpace needs to be retained or not. If the image state is ERROR, then proceed to send notification. Otherwise, loop and wait."
+                },
+                "Delete Builder?": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.AutomationParameters.DeleteBuilder",
+                      "BooleanEquals": true,
+                      "Next": "Delete Builder WorkSpace",
+                      "Comment": "TRUE"
+                    },
+                    {
+                      "Variable": "$.AutomationParameters.DeleteBuilder",
+                      "BooleanEquals": false,
+                      "Next": "Create Bundle?",
+                      "Comment": "FALSE"
+                    }
+                  ]
+                },
+                "Delete Builder WorkSpace": {
+                  "Type": "Task",
+                  "Parameters": {
+                    "TerminateWorkspaceRequests.$": "States.Array($.AutomationParameters.ImageBuilderIdArray)"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:terminateWorkspaces",
+                  "Next": "Create Bundle?",
+                  "ResultPath": null
+                },
+                "Create Bundle?": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.AutomationParameters.CreateBundle",
+                      "BooleanEquals": true,
+                      "Next": "Tag Bundle?",
+                      "Comment": "TRUE"
+                    },
+                    {
+                      "Variable": "$.AutomationParameters.CreateBundle",
+                      "BooleanEquals": false,
+                      "Next": "Send Final Notification",
+                      "Comment": "FALSE"
+                    }
+                  ]
+                },
+                "Tag Bundle?": {
+                  "Type": "Choice",
+                  "Choices": [
+                    {
+                      "Variable": "$.AutomationParameters.BundleTags",
+                      "BooleanEquals": false,
+                      "Next": "Create Workspace Bundle (No Tags)",
+                      "Comment": "FALSE"
+                    }
+                  ],
+                  "Default": "Create Workspace Bundle (Tagged)"
+                },
+                "Create Workspace Bundle (Tagged)": {
+                  "Type": "Task",
+                  "Parameters": {
+                    "BundleDescription.$": "$.AutomationParameters.BundleDescription",
+                    "BundleName.$": "$.AutomationParameters.BundleName",
+                    "ComputeType.$": "$.AutomationParameters.BundleComputeType",
+                    "ImageId.$": "$.ImageStatus.Images[0].ImageId",
+                    "RootStorage.$": "$.AutomationParameters.BundleRootVolumeSize",
+                    "UserStorage.$": "$.AutomationParameters.BundleUserVolumeSize",
+                    "Tags.$": "$.AutomationParameters.BundleTags"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:createWorkspaceBundle",
+                  "Next": "Send Final Notification",
+                  "ResultPath": "$.BundleStatus"
+                },
+                "Create Workspace Bundle (No Tags)": {
+                  "Type": "Task",
+                  "Parameters": {
+                    "BundleDescription.$": "$.AutomationParameters.BundleDescription",
+                    "BundleName.$": "$.AutomationParameters.BundleName",
+                    "ComputeType.$": "$.AutomationParameters.BundleComputeType",
+                    "ImageId.$": "$.ImageStatus.Images[0].ImageId",
+                    "RootStorage.$": "$.AutomationParameters.BundleRootVolumeSize",
+                    "UserStorage.$": "$.AutomationParameters.BundleUserVolumeSize"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:createWorkspaceBundle",
+                  "Next": "Send Final Notification",
+                  "ResultPath": "$.BundleStatus"
+                },
+                "Send Final Notification": {
+                  "Type": "Task",
+                  "Resource": "arn:aws:states:::lambda:invoke",
+                  "Parameters": {
+                    "Payload.$": "$",
+                    "FunctionName": "${LambdaFunction06Notification.Arn}"
+                  },
+                  "Retry": [
+                    {
+                      "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException",
+                        "Lambda.TooManyRequestsException"
+                      ],
+                      "IntervalSeconds": 1,
+                      "MaxAttempts": 3,
+                      "BackoffRate": 2
+                    }
+                  ],
+                  "End": true,
+                  "ResultPath": null
+                },
+                "Start Builder WorkSpace (Create)": {
+                  "Type": "Task",
+                  "Next": "If Not Available, Wait 3 Min (Create)",
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:startWorkspaces",
+                  "Parameters": {
+                    "StartWorkspaceRequests.$": "States.Array($.AutomationParameters.ImageBuilderIdArray)"
+                  },
+                  "ResultPath": null
+                },
+                "If Not Available, Wait 3 Min (Create)": {
+                  "Type": "Wait",
+                  "Seconds": 180,
+                  "Next": "Check Builder Status (Create)"
+                },
+                "If Image Not Available, Wait 10 Min": {
+                  "Type": "Wait",
+                  "Seconds": 600,
+                  "Next": "Check Image Status (Post-Wait)"
+                },
+                "Check Image Status (Post-Wait)": {
+                  "Type": "Task",
+                  "Next": "Is Image Available?",
+                  "Parameters": {
+                    "ImageIds.$": "States.Array($.ImageStatus.Images[0].ImageId)"
+                  },
+                  "Resource": "arn:aws:states:::aws-sdk:workspaces:describeWorkspaceImages",
+                  "ResultPath": "$.ImageStatus"
+                }
+              }
+            }
+      RoleArn: !GetAtt 'StepFunctionIAMRole.Arn'
+      
+  StepFunctionEventRule: 
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Join
+        - "_"
+        - - "WKS_Automation_Windows_Failure_Notification"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"     
+      Description: "Rule to send notification to SNS topic when the WorkSpaces Windows automation Step Function fails."
+      EventPattern: 
+        source: 
+          - "aws.states"
+        detail-type: 
+          - "Step Functions Execution Status Change"
+        detail: 
+          status: 
+            - "FAILED"
+          stateMachineArn:
+            - !GetAtt 'StepFunction.Arn'             
+      Targets: 
+        - Arn: !Ref SNSTopic
+          Id: "SNStopic"
+          InputTransformer:
+            InputPathsMap:
+              "account": "$.account"
+              "executionname": "$.detail.name"
+              "input": "$.detail.input"
+              "machine": "$.detail.stateMachineArn"
+              "region": "$.region"
+              "status": "$.detail.status"
+            InputTemplate: |
+              {
+                "StepFunction" : <machine>,
+                "Status" : <status>,
+                "Execution" : <executionname>,
+                "Input" : <input>,
+                "Account" : <account>,
+                "Region" : <region>
+              }       
+
+  InstallationSourceS3Bucket: 
+    Type: "AWS::S3::Bucket" #creates a bucket with a semi-random name wks-automation-installerj-source-XXXXXX
+    Properties:
+      BucketName: !Join
+        - "-"
+        - - "wks-automation-installer-source"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+      AccessControl: Private
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+         - Id: "Delete previous versions"
+           NoncurrentVersionExpiration:
+             NewerNoncurrentVersions: 1
+             NoncurrentDays: 14
+           Status: Enabled
+
+Outputs:
+  APIInvokeURL:
+    Description: "API URL to be updated in PowerShell startup script"
+    Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/get-creds?hostname=$computername"
