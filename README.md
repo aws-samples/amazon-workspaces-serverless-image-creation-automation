@@ -76,7 +76,7 @@ Below is a sample InstallRoutine value that downloads two files, one from S3 and
 
 
 ### Windows Updates considerations
-The image creation pipeline triggers Windows Updates utilizing the [PSWindowsUpdate](https://www.powershellgallery.com/packages/PSWindowsUpdate/) PowerShell module. You have the option to skip the Windows Update portion of the workflow by including the **SkipWindowsUpdates** in the input JSON statement, and settings it to True. By default, your Windows WorkSpaces are configured to receive updates from directly from Microsoft via Windows Update over the internet. If you do not configure any Windows Updates settings with a GPO attached to your image creation OU, then your WorkSpaces will continue to receive approved updates from Microsoft.  Alternatively, you can configure your own update mechanisms for Windows. See the documentation for Windows Server Update Services (WSUS) or the systems management platform you have in place for details.
+The image creation pipeline can optinally trigger Windows Updates utilizing the [PSWindowsUpdate](https://www.powershellgallery.com/packages/PSWindowsUpdate/) PowerShell module. You have the option to run the Windows Update portion of the workflow by including the **SkipWindowsUpdates** in the input JSON statement, and settings it to *false*. By default, your Windows WorkSpaces are configured to receive updates from directly from Microsoft via Windows Update over the internet. If you do not configure any Windows Updates settings with a GPO attached to your image creation OU, then your WorkSpaces will continue to receive approved updates from Microsoft.  Alternatively, you can configure your own update mechanisms for Windows. See the documentation for Windows Server Update Services (WSUS) or the systems management platform you have in place for details.
 
 
 ### Example JSON statement to start Step Function execution
@@ -86,6 +86,7 @@ An example JSON statement used to start an execution of the automation Step Func
 {
     "DeleteBuilder": true,
     "CreateBundle": true,
+    "SkipWindowsUpdates": true,
     "ImageNamePrefix": "WKS_Blog_Test",
     "ImageTags": [
         {
