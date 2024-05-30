@@ -131,6 +131,45 @@ These example parameters will run the AWS Step Functions state machine resulting
 ### Troubleshooting the configuration routine
 The configuration routine expects silent installs and properly formatted commands. That being said, there are times when you need to troubleshoot and investigate failures. The WKS_Automation_Windows_FN03_Configuration_Routine Lambda function writes each of the actions, and their results, to the CloudWatch log. Additionally, if  any of the commands do not return a status code of 0, then they are considered a failure and the command and return code are added to InstallRoutineErrors list. This value is passed along the Step Function steps and you can view it on the Output tabs of the Step Function. The final count of errors and their details are included in the final email that is sent at the end of the pipeline.
 
+### Cleanup
+
+You created several components that may generate costs based on usage. To avoid incurring future charges, remove the following resources.
+
+1. Remove the S3 buckets used to store the .zip files containing the Lambda function code and the S3 bucket holding the software installation packages.
+	- Navigate to the [Amazon S3 console](https://s3.console.aws.amazon.com/).
+	- Select the bucket created in **Step 1**.
+	- Select all the objects inside the bucket and choose **Delete**.
+	- Confirm the deletion and choose **Delete objects**.
+	- Once the bucket is empty, return to the Amazon S3 bucket page.
+	- Select the bucket and choose **Delete**.
+	- Confirm the deletion and choose Delete bucket.
+	- Repeat these steps to remove the bucket containing the software installation packages. This bucket will be named similar to: wks-automation-installer-source-#######.
+
+2. Remove any WorkSpaces bundles and images created from the automation.
+	- Navigate to the [Amazon WorkSpaces console](https://console.aws.amazon.com/workspaces).
+	- Select **Bundles**.
+	- Filter the bundle list by selecting **Custom bundles** under **Filter owner**.
+	- Select the bundle name to delete and choose **Delete**.
+	- Choose **Delete** to confirm.
+	- Select **Images**.
+	- Select the image name to delete and choose **Delete**.
+	- Choose **Delete** to confirm.
+	- Repeat for any additional bundles and images created using the automation that are no longer needed.
+
+3. Remove any image builder WorkSpaces created by the automation that remain.
+	- Navigate to the [Amazon WorkSpaces console](https://console.aws.amazon.com/workspaces).
+	- Select **WorkSpaces**.
+	- To find WorkSpaces created for your image builder user, type the username into the **Filter WorkSpaces** box.
+	- Select the box next to the WorkSpace to delete.
+	- Select the image builder to delete, choose **Delete**.
+	- Enter the *Delete* into the confirmation box, then choose **Delete**.
+	- Repeat for any additional image builders left behind from the automation that are no longer needed.
+
+ 4. Remove all the remaining resources created by the CloudFormation template:
+	- Navigate to the [AWS CloudFormation console](https://console.aws.amazon.com/cloudformation/).
+	- Select the stack created in **Step 4**, *WorkSpaces-Windows-Image-Pipeline*.
+	- Choose **Delete**. This will automatically delete the remaining resources used in the solution.
+
 ## Security
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
