@@ -112,11 +112,11 @@ An example JSON statement used to start an execution of the automation Step Func
         ],
         [
             "DOWNLOAD_HTTP",
-            "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.6/npp.8.6.Installer.x64.exe"
+            "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.6/npp.8.6.6.Installer.x64.exe"
         ],
         [
             "RUN_COMMAND",
-            "c:\\wks_automation\npp.8.6.Installer.x64.exe /S"
+            "c:\\wks_automation\npp.8.6.6.Installer.x64.exe /S"
         ],
         [
             "RUN_POWERSHELL",
