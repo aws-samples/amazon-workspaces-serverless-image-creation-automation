@@ -120,7 +120,11 @@ An example JSON statement used to start an execution of the automation Step Func
         ],
         [
             "RUN_POWERSHELL",
-            "New-ItemProperty -Path HKLM:\\Software\\Amazon -Name Automated_Image -Value true -PropertyType String -Force"
+            "New-Item -Path HKLM:\\Software\\AmazonBlog -Force"
+        ],
+        [
+            "RUN_POWERSHELL",
+            "New-ItemProperty -Path HKLM:\\Software\\AmazonBlog -Name Automated_Image -Value true -PropertyType String -Force"
         ]
     ]
 }
