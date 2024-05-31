@@ -172,7 +172,7 @@ You created several components that may generate costs based on usage. To avoid 
 
  4. Remove all the remaining resources created by the CloudFormation template:
 	- Navigate to the [AWS CloudFormation console](https://console.aws.amazon.com/cloudformation/).
-	- Select the stack created in **Step 4**, *WorkSpaces-Windows-Image-Pipeline*.
+	- Select the stack created in **Step 3**, *WorkSpaces-Windows-Image-Pipeline*.
 	- Choose **Delete**. This will automatically delete the remaining resources used in the solution.
 
 ## Security
