@@ -456,7 +456,7 @@ Resources:
         S3Key: FN00_API.zip        
       Runtime: python3.11
       Role: !GetAtt 'ApiLambdaFunctionIAMRole.Arn'
-      Timeout: 3
+      Timeout: 15
 
   LambdaFunction01CreateBuilder:
     Type: AWS::Lambda::Function  
