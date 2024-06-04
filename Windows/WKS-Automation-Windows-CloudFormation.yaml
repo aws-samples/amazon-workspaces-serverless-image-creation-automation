@@ -1406,3 +1406,8 @@ Outputs:
   APIInvokeURL:
     Description: "API URL to be updated in PowerShell startup script"
     Value: !Sub "https://${RestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/get-creds?hostname=$computername"
+
+  InstallationSourceS3Bucket:
+    Description: The bucket in S3 to upload software install packages to.
+    Value: 
+      Ref: InstallationSourceS3Bucket  
